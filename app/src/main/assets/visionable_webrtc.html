@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+ul, li {
+  list-style-type: none;
+}
+button,
+input[type='text'],
+input[type='password'] {
+  width: 150px;
+}
+.video-container {
+  position: relative;
+  display: inline-block;
+}
+.video-container video {
+  height: 300px;
+}
+.video-container .video-title {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background-color: rgba(0,0,0,0.5);
+  padding: 5px;
+  color: white;
+}
+.video-container .close-button {
+  float: right;
+}
+.presence-notifications,
+.presence-result {
+  width: 600px;
+  height: 200px;
+}
+</style>
+
+    <script src="file:///android_asset/jquery.js"></script>
+<script>
+    // Load the visiwebrtc.js from the server we are going to connect to. You could also
+    // get the jquery from there to, but we're loading it from a local asset
+    var myServer = plugin.GetHostname();
+    var jsloc = "https://" + myServer + "/v1806/visiwebrtc.js";
+    console.log("visiwebrtc js location: " + jsloc);
+    $.getScript(jsloc);
+</script>
+    <script>
+function stopMeeting() {
+  visiwebrtc_client.disconnect();
+}
+
+function joinMeeting() {
+  var meeting_id = $("#meeting_id").val();
+  var server = $("#server").val();
+  var email = $("#email").val();
+  var password = $("#password").val();
+  var name = $("#name").val();
+
+console.log("email = " + email);
+console.log("password = " + password);
+console.log("server = " + server);
+
+  // Construct the client object and authenticate
+  window.visiwebrtc_client = new VisiWebRTC({
+    server: server,
+    email: email,
+    password: password,
+    name: name,
+    callback: function (err) {
+      if (err) {
+        console.log(err)
+        return
+      }
+
+      // connect to a meeting
+      visiwebrtc_client.connectToMeeting({
+        meeting_id: meeting_id,
+        videoStreamAdded: function(id, email, name, camera_name) {
+          // create a container for this video
+          var str = "<div class='video-container' id='" + id + "'>" +
+            "<div class='video-title'>" + name + " - " + camera_name + "<button class='close-button'>Close</button></div>" +
+            "</div>";
+          $(str).appendTo("#videos");
+
+          // enable remote video stream
+          visiwebrtc_client.enableRemoteVideo(id, "#" + id, function(err) {
+            if (err) {
+              $("#" + id).remove();
+              alert(err);
+            }
+          });
+        },
+        videoStreamRemoved: function(id) {
+          $("#" + id).remove();
+        },
+        toolsNotification: function (xml) {
+          $(".tools-notifications").text(xml); // For now, just output the notification
+        },
+        callback: function(err, video_receive_max, meeting_id) {
+          if (err) {
+            console.log(err);
+            return;
+          }
+
+          // create a container for this video
+          $("<div class='video-container' id='local_video'></div>").appendTo("#videos");
+
+          var max_bandwidth = $("#bandwidth").val();
+          var resolution = $("#resolution").val(); // values can be "320x180", "320x240", "640x480", "640x360", "960x720", or "1280x720"
+          var device = $("#video_device").val();
+
+          visiwebrtc_client.enableLocalVideo("#local_video", function() { // enable local video
+            visiwebrtc_client.enableAudio(); // enable all audio
+          }, max_bandwidth, resolution, device);
+        }
+      });
+    }
+  });
+}
+
+$(function() { // document onready
+  // Hook up the initial button callbacks
+  $("#start_button").click(joinMeeting);
+  $("#stop_button").click(stopMeeting);
+  $("#debug_button").click(function() {
+      visiwebrtc_client.debugInfo("body");
+  });
+  $("#start_presence_button").click(startPresence);
+
+  // Hook up the video window close buttons
+  $(document).delegate(".close-button", "click", function(e) {
+    var id = $(e.target).closest(".video-container").attr("id");
+    visiwebrtc_client.disableRemoteVideo(id);
+  });
+
+  // Hook up the output volume slider
+  $("#output_volume").change(function(e) {
+    var volume = $(e.target).val();
+    visiwebrtc_client.audioOutputVolume(volume);
+  });
+
+  // audio & video mute buttons
+  var input_muted = false;
+  $("#mute_audio_input").click(function () {
+    input_muted = ! input_muted;
+
+    if ( input_muted ) {
+      visiwebrtc_client.muteAudioInput();
+    } else {
+      visiwebrtc_client.unMuteAudioInput();
+    }
+
+    $(this).text((input_muted ? "Unmute " : "Mute ") + "Audio Input");
+  });
+
+  var output_muted = false;
+  $("#mute_audio_output").click(function () {
+    output_muted = ! output_muted;
+
+    if ( output_muted ) {
+      visiwebrtc_client.muteAudioOutput();
+    } else {
+      visiwebrtc_client.unMuteAudioOutput();
+    }
+
+    $(this).text((output_muted ? "Unmute " : "Mute ") + "Audio Output");
+  });
+
+  var video_send_disabled = false;
+  $("#disable_local_video").click(function () {
+    video_send_disabled = ! video_send_disabled;
+
+    var max_bandwidth = $("#bandwidth").val();
+    var resolution = $("#resolution").val(); // values can be "320x180", "320x240", "640x480", "640x360", "960x720", or "1280x720"
+    var device = $("#video_device").val();
+
+    if ( video_send_disabled ) {
+      visiwebrtc_client.disableLocalVideo();
+    } else {
+      visiwebrtc_client.enableLocalVideo("#local_video", null, max_bandwidth, resolution, device);
+    }
+
+    $(this).text((video_send_disabled ? "Enable " : "Disable ") + "Local Video");
+  });
+
+  // Here is the list of available Tools commands and their arguments.
+  // Each command has a callback as the last argument (which are not listed here)
+  var commands = {
+    "Chat": ["user", "message"], // use "*" for everyone in the meeting
+    "ShareUrl": ["url"],
+  };
+
+  // Build up the list of commands as buttons and inputs for the arguments
+  var str = "";
+  $.each(commands, function (command, args) {
+    str += "<li><button>" + command + "</button>";
+    $.each(args, function (i,arg) { str += "<input type='text' placeholder='" + arg + "' />"; });
+    str += "</li>";
+  });
+  $(".tools-tester-list").append(str);
+
+  // When a user clicks the button
+  $(".tools-tester-list button").click(function () {
+    var command = $(this).text();
+    var args = $(this).siblings("input").map(function (i, e) { return $(e).val(); });
+
+    // Run the command! You could do tools.command(arg1, arg2, etc) as well.
+    window.visiwebrtc_client.tools[command].apply(window.visiwebrtc_client.tools, args);
+  });
+
+  // get list of video devices
+  navigator.mediaDevices.enumerateDevices().then(function (devices) {
+    var options = devices
+      .filter(function (dev) {
+        return dev.kind === "videoinput";
+      })
+      .map(function (dev) {
+        return "<option value='" + dev.deviceId + "'>" + dev.label + "</option>";
+      })
+      .join("");
+
+    $("#video_device").append(options)
+  });
+});
+
+function startPresence() {
+  $("#start_presence_button").prop("disabled", true); // Disable this button
+
+  var server = $("#server").val();
+  var email = $("#email").val();
+
+  // Instantiate the Presence object
+  window.presence = new Presence(email, server);
+
+  // Enable the notification session
+  window.presence.EnableNotifications(function() {
+    // Start the long-polling, hook up our notification callback
+    window.presence.GetNotifications(onPresenceNotification);
+  });
+
+  // Here is the list of available commands and their arguments.
+  // Each command has a callback as the last argument (which are not listed here)
+  var commands = {
+    SetStatus: ["status", "description"], // Sets your status. "status" should be "Available", "Away", or "Offline". "description" can be anything.
+    SetHandle: ["handle"],
+    GetUsers: [], // Retrieves an XML list of contacts
+    Invite: ["meeting_id", "user"], // Send an invite to a user asking to join a meeting
+    Reply: ["user", "subject", "meeting_id", "message"], // Reply to a user's invite. "subject" should be "Accept" or "Reject"
+    Chat: ["user", "message"],
+    AddContact: ["user"],
+    RemoveContact: ["user"],
+    DenyContact: ["user"],
+    AcceptCommunity: ["community_id"],
+    RejectCommunity: ["community_id"]
+  };
+
+  // Build up the list of commands as buttons and inputs for the arguments
+  var str = "";
+  $.each(commands, function(command, args) {
+    str += "<li><button>" + command + "</button>";
+    $.each(args, function(i, arg) {
+      str += "<input type='text' placeholder='" + arg + "' />";
+    });
+    str += "</li>";
+  });
+  $(".presence-tester-list").append(str);
+
+  // When a user clicks the button
+  $(".presence-tester-list button").click(function() {
+    var command = $(this).text();
+    var args = $(this).siblings("input").map(function(i, e) {
+      return $(e).val();
+    });
+
+    // Add the callback as the last argument
+    args.push(function(data) {
+      $(".presence-result").text(xml2str(data));
+    });
+
+    // Run the command! You could do presence.command(arg1, arg2, etc) as well.
+    window.presence[command].apply(window.presence, args);
+  });
+}
+
+function onPresenceNotification(xml) {
+  // Do something with this notification. Update your data structures as needed
+  $(".presence-notifications").text(xml2str(xml)); // For now, just output the notification
+
+  window.presence.GetNotifications(onPresenceNotification); // Start polling again
+}
+</script>
+</head>
+<body>
+Email:      <input type='text' name="email" id="email" /><br />
+Password:   <input type='text' name="password" id="password" /><br />
+Server:     <input type='text' name="server" id="server" /><br />
+<h3>WebRTC Audio & Video</h3>
+
+Name:       <input type='text' id="name" /><br />
+Meeting ID: <input type='text' id="meeting_id" /><br />
+
+<script>
+    // Get data from native app object 'plugin' to populate the user entry fields
+    document.querySelector('#email').value = plugin.GetUsername();
+    document.querySelector('#password').value = plugin.GetPassword();
+    document.querySelector('#server').value = plugin.GetHostname();
+    document.querySelector('#name').value = plugin.GetName();
+    document.querySelector('#meeting_id').value = plugin.GetMeetingId();
+</script>
+
+Video Device:
+<select id="video_device">
+    <option value="default">Default</option>
+</select><br />
+
+Max Video Bandwidth:
+<select id="bandwidth">
+    <option value="256">256k</option>
+    <option selected value="512">512k</option>
+    <option value="2014">2014k</option>
+</select><br />
+
+Video Resolution:
+<select id="resolution">
+    <option value="320x180">320x180</option>
+    <option value="320x240">320x240</option>
+    <option value="640x360">640x360</option>
+    <option selected value="640x480">640x480</option>
+    <option value="960x720">960x720</option>
+    <option value="1280x720">1280x720</option>
+</select>
+
+<br />
+
+<button id="start_button">Join Meeting</button>
+<button id="stop_button">Exit Meeting</button>
+<button id="debug_button">Debug</button>
+
+<br />
+
+<button id="disable_local_video">Disable Local Video</button>
+<button id="mute_audio_input">Mute Audio Input</button>
+<button id="mute_audio_output">Mute Audio Output</button>
+Volume: <input type='range' id='output_volume' min="0" max="1" step="0.1" value="1" />
+
+<br />
+
+<div id="videos"></div>
+
+<div>
+    <h3>In-Meeting Tools</h3>
+    <ul class='tools-tester-list'></ul>
+    <textarea class='tools-notifications'>Tools Notifications</textarea>
+</div>
+
+<hr />
+
+<div>
+    <h3>Presence</h3>
+    <button id="start_presence_button">Start Presence</button>
+    <ul class='presence-tester-list'></ul>
+    <textarea class='presence-result'>Presence Command Results</textarea>
+    <textarea class='presence-notifications'>Presence Notifications</textarea>
+</div>
+
+</body>
+</html>
