@@ -25,6 +25,7 @@ So, to call the above method in your Javascript, on the web page, just use the m
     
 
 The JavaScript in the included HTML file merely pre-populates the edit boxes with values fetched from ```MainActivity.java``` but you 
-can, of course do whatever you want with the **values**.
+can, of course do whatever you want with the **values**. You must first, however, define the Hostname in the ```MainActivity.java``` file
+before running this. Set this to the site where you have API access. Talk to the Visionable sales team for full API access. 
 
 See [Visionable.com](https://www.visionable.com) for more information on our WebRTC JavaScript application.

@@ -13,6 +13,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -21,10 +22,10 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.Toast;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int CAMERA_CODE = 11;
     private WebView wv;
     Context mContext;
 
@@ -33,9 +34,14 @@ public class MainActivity extends AppCompatActivity {
         mContext = this;
 
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
         // Create a webview to embed VisiWebRTC client into
         wv = new WebView(this);
+
+        // Comment out this next line if you don't want the HTML page to display, and just
+        // control it via the webrtc object in the web page. You will, however,
+        // need to display the video in an embedded web page somehow.
         setContentView(wv);
 
         // A bunch of useful settings for our webview
@@ -71,6 +77,16 @@ public class MainActivity extends AppCompatActivity {
 
         // Load our embedded sample HTML file
         wv.loadUrl("file:///android_asset/visionable_webrtc.html");
+
+        final Button button = (Button) findViewById(R.id.button);
+        if (button != null) {
+            button.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    // You can call into the JavaScript from the native app too!
+                    wv.evaluateJavascript("joinMeeting()", null);
+                }
+            });
+        }
 
         Log.d("andweb", "done with OnCreate");
     }
@@ -133,7 +149,8 @@ public class MainActivity extends AppCompatActivity {
     @JavascriptInterface
     public String GetHostname() {
 
-        // Server name where user and meeting are located
+        // Server name where user and meeting are located. You must have API access to this
+        // site as well
         return "cloud.visionable.com";
     }
 
